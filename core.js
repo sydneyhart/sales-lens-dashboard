@@ -1,7 +1,9 @@
+// Shared business rules: browser global for the app, CommonJS for the same code in tests.
 (function (root) {
   'use strict';
   const HEADERS = ['deal_id','close_date','region','rep','product','status','amount'];
   const METRICS = { revenue:'Won revenue', deals:'Deals won', average:'Average won deal' };
+  // A quote-aware state machine preserves embedded commas/newlines instead of splitting blindly.
   function parseCSV(input) {
     const text = input.replace(/^\uFEFF/, '');
     const delimiter = text.split(/\r?\n/)[0].includes('\t') ? '\t' : ',';
@@ -23,11 +25,13 @@
     if (cell || row.length || afterQuote) endRow();
     return rows;
   }
+  // Round-trip the ISO date: JavaScript otherwise normalizes impossible dates into another month.
   function validDate(value) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
     const date = new Date(value+'T00:00:00Z');
     return Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === value && +value.slice(0,4) >= 1900;
   }
+  // Return a complete validated dataset or throw. The controller replaces its state only on success.
   function ingest(text) {
     if (new TextEncoder().encode(text).length > 2_000_000) throw Error('Maximum upload size is 2 MB.');
     const records = parseCSV(text); if (records.length < 2) throw Error('Include headers and at least one deal.');
@@ -48,13 +52,16 @@
       if (!['won','lost','open'].includes(row.status)) fail('status must be won, lost, or open.');
       if (!/^\d+(\.\d{1,2})?$/.test(row.amount)) fail('amount must be a nonnegative USD number, without commas or currency symbols, with at most 2 decimals.');
       const [dollars, fraction=''] = row.amount.split('.');
+      // Build integer cents from decimal text, avoiding floating-point sum errors such as 0.1 + 0.2.
       row.cents = Number(dollars)*100 + Number(fraction.padEnd(2,'0'));
       total += row.cents;
       if (!Number.isSafeInteger(row.cents) || !Number.isSafeInteger(total)) fail('amounts exceed safe numeric limits.');
       row.month = row.close_date.slice(0,7);
+      // Whitelist fields so unrelated customer/contact columns are not retained or sent to AI.
       return Object.fromEntries([...HEADERS.map(h=>[h,row[h]]),['cents',row.cents],['month',row.month]]);
     });
   }
+  // Compute sums/counts before division. Null means undefined, distinct from a real zero value.
   function totals(rows) {
     const won = rows.filter(r=>r.status==='won'), lost=rows.filter(r=>r.status==='lost');
     const revenue=won.reduce((n,r)=>n+r.cents,0);
@@ -63,6 +70,7 @@
   function ranks(rows, dimension, metric) {
     const groups = new Map();
     for (const r of rows) { if (!groups.has(r[dimension])) groups.set(r[dimension],[]); groups.get(r[dimension]).push(r); }
+    // All legitimate values are nonnegative; null sorts last, with names breaking equal-value ties.
     return [...groups].map(([name,group])=>({name,...totals(group)})).map(g=>({...g,value:g[metric]}))
       .sort((a,b)=>(b.value??-1)-(a.value??-1)||a.name.localeCompare(b.name));
   }
@@ -72,6 +80,7 @@
     if (value===null || value===undefined) return '—';
     return metric==='deals'?new Intl.NumberFormat('en-US').format(value):new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(value/100);
   }
+  // Dataset presence and numeric zero need different reporting; neither permits infinite growth.
   function change(current,prior,available,metric) {
     if (!available) return 'No prior-month data';
     if (current===null || prior===null) return 'No comparable won deals';
@@ -83,9 +92,11 @@
     const {month,metric='revenue',region='',rep='',product=''}=options;
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)||!Object.hasOwn(METRICS,metric)) throw Error('Select a valid month and metric.');
     const scoped=data.filter(r=>(!region||r.region===region)&&(!rep||r.rep===rep)&&(!product||r.product===product));
+    // Select both months from the identical filtered cohort, not different comparison populations.
     const rows=scoped.filter(r=>r.month===month),priorRows=scoped.filter(r=>r.month===previousMonth(month));
     const current=totals(rows),prior=totals(priorRows),groups=Object.fromEntries(['region','rep','product'].map(d=>[d,ranks(rows,d,metric)]));
     const threshold=median(groups.rep.map(g=>g.value));
+    // Undefined averages are omitted from median(), but no-win reps still receive a review flag.
     const attention=groups.rep.filter(g=>g.deals===0||(g.value!==null&&g.value<threshold));
     const result={options:{month,metric,region,rep,product},current,prior,priorAvailable:priorRows.length>0,groups,attention,threshold};
     result.summary=brief(result);return result;
@@ -96,6 +107,7 @@
     return `${names(ties)} (${format(groups[0].value,metric)})`;
   }
   function names(values) { return values.length<=2?values.join(' and '):`${values.slice(0,2).join(', ')} and ${values.length-2} others`; }
+  // This deterministic narrative is the factual reference; optional LLM wording is kept separate.
   function brief(result) {
     const {options:o,current:c,prior:p,priorAvailable,groups,attention}=result;
     if (!c.rows) return 'No deals match these filters. Choose a different month or broaden the scope.';
@@ -106,7 +118,9 @@
     else parts.push('No rep is below the observed peer median for this metric.');
     return parts.join(' ');
   }
+  // Spreadsheet labels and AI prose are untrusted text, including inside the downloadable report.
   const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  // Serialize aggregate results only: this function receives no raw deal records or identifiers.
   function exportHTML(result,ai='') {
     const o=result.options, c=result.current;
     const sections=Object.entries(result.groups).map(([dimension,rows])=>`<h2>By ${dimension}</h2><table><thead><tr><th>${dimension}</th><th>${escape(METRICS[o.metric])}</th><th>Won revenue (USD)</th><th>Deals won</th><th>Average won deal (USD)</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${escape(r.name)}</td><td>${escape(format(r.value,o.metric))}</td><td>${format(r.revenue)}</td><td>${r.deals}</td><td>${format(r.average)}</td></tr>`).join('')}</tbody></table>`).join('');

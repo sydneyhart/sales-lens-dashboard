@@ -14,6 +14,7 @@ HOSTS = {'127.0.0.1:8767', 'localhost:8767'}
 ORIGINS = {'http://127.0.0.1:8767', 'http://localhost:8767'}
 
 def local_request(path, body, method='POST'):
+    """Use a fixed loopback transport; request data cannot select an external AI host."""
     connection = http.client.HTTPConnection('127.0.0.1',11434,timeout=180)
     try:
         connection.request(method,path,json.dumps(body) if method=='POST' else None,{'Content-Type':'application/json'})
@@ -25,12 +26,14 @@ def local_request(path, body, method='POST'):
         connection.close()
 
 def draft(request):
+    """Validate the aggregate envelope and installed-model metadata before sending sales content."""
     model = request.get('model','')
     if not isinstance(model,str) or not re.fullmatch(r'[A-Za-z0-9_.:/-]{1,100}',model) or 'cloud' in model.lower():
         raise ValueError('Choose an installed local model, not a cloud model.')
     aggregate=request.get('aggregate')
     if not isinstance(aggregate,dict) or set(aggregate)!={'month','metric','brief','totals','rankings'}:
         raise ValueError('Expected only the dashboard aggregate fields.')
+    # Inspect metadata before any aggregate content is sent to a model that may be remote.
     models=local_request('/api/tags',{},method='GET').get('models',[])
     info=next((entry for entry in models if entry.get('name') in (model,model+':latest')),None)
     if not info:
@@ -46,17 +49,20 @@ def draft(request):
     return summary.strip()
 
 class Handler(BaseHTTPRequestHandler):
+    # Do not log URLs or submitted sales aggregates to a request-history file or console.
     def log_message(self,*args): pass
     def respond(self,status,body,mime='application/json'):
         encoded=body.encode();self.send_response(status);self.send_header('Content-Type',mime+'; charset=utf-8')
         self.send_header('Content-Length',str(len(encoded)));self.send_header('Cache-Control','no-store')
         self.send_header('X-Content-Type-Options','nosniff');self.send_header('X-Frame-Options','DENY');self.end_headers();self.wfile.write(encoded)
     def do_GET(self):
+        # Named static routes prevent the companion from exposing arbitrary files from disk.
         if self.headers.get('Host') not in HOSTS:return self.respond(403,'{}')
         if self.path not in ALLOWED:return self.respond(404,'{}')
         filename,mime=ALLOWED[self.path];self.respond(200,(ROOT/filename).read_text(),mime)
     def do_POST(self):
         if self.path!='/api/summary':return self.respond(404,'{}')
+        # Local origin and Host checks reject cross-site calls and ordinary DNS-rebinding attempts.
         if self.headers.get('Host') not in HOSTS or self.headers.get('Origin') not in ORIGINS:
             return self.respond(403,json.dumps({'error':'Local same-origin requests only.'}))
         try:

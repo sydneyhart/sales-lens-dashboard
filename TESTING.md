@@ -2,6 +2,12 @@
 
 Tested October 28, 2026.
 
+## Final-project documentation update
+
+The final submission adds PRD.md, AI_WORKFLOW.md, ARCHITECTURE.md, a README submission/demo guide, and explanatory comments in core.js, app.js, and server.py. This update does not change runtime rules or UI behavior.
+
+After the comment/documentation changes, all **20 JavaScript tests and six Python tests passed again**. A documentation check verified all seven local Markdown links across the five main documents with zero broken targets. The browser observations below remain the earlier prototype-session evidence; they were not repeated or relabeled as new browser testing for this documentation-only update.
+
 ## Automated tests
 
 **26 passed, 0 failed:** 20 JavaScript data tests plus six Python local-companion tests.

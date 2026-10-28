@@ -2,6 +2,19 @@
 
 A browser-private SaaS sales dashboard built with AI-assisted iterative coding. Upload a spreadsheet export, compare regions, reps, and products, review a plain-language executive brief, and download an aggregate report for the team.
 
+## Final-project submission
+
+**Category:** Business/productivity app with optional local AI assistance.
+
+| Project step | Deliverable |
+|---|---|
+| Define the solution | [PRD.md](PRD.md): problem, user stories, release scope, data contract, acceptance criteria |
+| Translate requirements into prompts | [AI_WORKFLOW.md](AI_WORKFLOW.md): reusable prompt set, mapped requirements, observed debugging/refinements |
+| Build and test | Runnable browser app, optional local companion, synthetic data, [tests](tests/), [TESTING.md](TESTING.md), and CI |
+| Document the solution | This README, [ARCHITECTURE.md](ARCHITECTURE.md) with data-flow diagram, and inline code comments |
+
+The core prototype is complete and usable without a language model. Live local-AI inference remains unverified; the implemented integration and failure behavior have automated coverage. This distinction is retained throughout the documentation.
+
 ## Start
 
 Open `index.html` in a modern browser, or run the included local server with Python 3.10+:
@@ -11,6 +24,15 @@ python3 server.py
 ```
 
 Open **http://127.0.0.1:8767**. Click **Try synthetic sample** for an immediate working example. No package installation or API key is required. For ordinary spreadsheet analysis, neither Python nor AI inference is required.
+
+### Five-minute review demonstration
+
+1. Start the app and select **Try synthetic sample**.
+2. Confirm October shows **$195,792.50** and **22 deals won**.
+3. Switch **Revenue → Deals won → Avg. deal** and watch rankings and the brief change.
+4. Filter **Europe** to see **$65,835.00** won revenue; select **Alex Morgan** as well to demonstrate the empty-result state, then clear that rep filter.
+5. Select **Export team report**, open the downloaded HTML, and review the region/rep/product aggregates.
+6. Select **Clear data** to reset the workspace. Local AI is an optional follow-up, not a dependency for this demonstration.
 
 ## What the dashboard does
 
